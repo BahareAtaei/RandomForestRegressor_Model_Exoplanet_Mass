@@ -2,6 +2,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 from scipy.optimize import brentq
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import KNNImputer
@@ -12,7 +13,20 @@ import warnings
 warnings.filterwarnings("ignore")
 #==========================================
 
-def preprocessing(df, radius=False, train_model='RFR'):
+def preprocessing(df, radius=False, train_model='RFR', median=None, knn=None):
+    '''
+    Parameters: 
+    ------------------
+    df:          dataframe exoplanet.eu_catalog_03-08-26_16_42_07.csv
+    radius:      bulean
+    train_model: string
+    median:      list strings
+    knn:         list strings
+
+    Returns:
+    ------------------
+    Dataframe: preprocessed.csv
+    '''
     print(f'****************** PREPROCESSING FUNCTION MODEL {train_model} ********************')
     print('='*50)
     print('='*50)
@@ -45,7 +59,7 @@ def preprocessing(df, radius=False, train_model='RFR'):
             'Percent': (df.isnull().mean() * 100).round(2)
         }
     )
-    missing_values = missing_values.sort_values('Percent',ascending=False)
+    missing_values = missing_values.sort_values('Percent', ascending=False)
     print(missing_values)
     print('='*50)
     print('')
@@ -153,9 +167,12 @@ def preprocessing(df, radius=False, train_model='RFR'):
     # log radius
     df['log_radius'] = np.log10(df['radius'])
     #==============================================================
+    # # round numerical columns to 4 decimal places
+    # float_cols = df.select_dtypes(include=['floating']).columns
+    # df[float_cols] = df[float_cols].round(4)
 
-    # save changes to a csv file
-    df.to_csv(r'C:\Users\Sisto\Documents\Programming\Python\Projects\Exoplanets\RandomForestRegressor\RFR\preprocessed.csv', index=False)
+    # # save changes to a csv file
+    # df = df.to_csv(r'C:\Users\Sisto\Documents\Programming\Python\Projects\Exoplanets\RandomForestRegressor\RFR\preprocessed.csv', index=False)
 
     return df
 #===========================================================================
@@ -164,6 +181,19 @@ def preprocessing(df, radius=False, train_model='RFR'):
 
 # RandomForestRegressor training
 def random_forest_reg(dff,features=None,train_model='RFR',median=None,knn=None):
+    '''
+    Parameters:
+    --------------------------
+    dff:          Dataframe preprocessed.csv
+    features:     list of strings
+    train_model:  string
+    median:       list of strings
+    knn:          list of strings
+
+    Returns:
+    ---------------------------
+    Dataframe:   random_forest_reg.csv
+    '''
     print(f'\n******************** RandomForestRegressor FUNCTION MODEL {train_model} ********************')
     print('='*50)
     print('='*50)
@@ -371,6 +401,28 @@ def random_forest_reg(dff,features=None,train_model='RFR',median=None,knn=None):
     model.fit(X_train, y_train)
     #========================================================
 
+
+    # features importance
+    print("******************** Feature Importance ********************")
+    print('='*50)
+    print('')
+    feature_importance = pd.DataFrame(
+        {
+        'Feature': features,
+        'Importance': model.feature_importances_
+        }
+    )
+
+    # sort features by importance
+    feature_importance = feature_importance.sort_values(by='Importance', ascending=False)
+
+    # print results
+    print(feature_importance.to_string(index=False))
+    print('='*50)
+    print('')
+    #=====================================================
+
+    # predict test values
     y_predict_test = model.predict(X_test)
     #========================================================
 
@@ -450,31 +502,85 @@ def random_forest_reg(dff,features=None,train_model='RFR',median=None,knn=None):
     plt.show()
     #=========================================================
 
-    # plot predicted / actual masses
-    plt.figure(figsize=(12, 8))
-    plt.scatter(y_test,y_predict_test,color='blue',label='Masses')
-    plt.plot([y_test.min(), y_test.max()],[y_test.min(), y_test.max()],ls='--',color='red',label='Best Prediction')
-    plt.title(f"Predicted Vs Actual log(Mass) Model {train_model}")
-    plt.xlabel("Actual Mass(log)")
-    plt.ylabel("Predicted Mass(log)")
-    plt.legend()
-    plt.grid(alpha=0.5,ls='--')
+    # plot predicted / actual mass(log / reall)
+    fig, axes = plt.subplots(1, 2, figsize=(12, 8))
+    fig.suptitle("Predicted Vs Actual Mass (Log / Real)")
+
+    # colors for mass groups
+    group_colors = {
+        'super_earth': 'blue',
+        'neptune': 'green',
+        'jupiter': 'orange',
+        'massive_planet': 'purple'
+    }
+
+    # log space
+    for group, color in group_colors.items():
+        mask = error_df['Mass_Group'] == group
+        sns.scatterplot(x = y_test[mask], y = y_predict_test[mask], color = color, label=group.replace('_', ' ').title(), ax=axes[0])
+
+    # best prediction line
+    axes[0].plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], ls='--', color='red', label='Best Prediction')
+    axes[0].set_title(f"Predicted Vs Actual Mass(Log) Model {train_model}")
+    axes[0].set_xlabel("Actual Mass(log)")
+    axes[0].set_ylabel("Predicted Mass(log)")
+    axes[0].legend()
+    axes[0].grid(alpha=0.5, ls='--')
+    
+    # real space
+    for group, color in group_colors.items():
+        mask = error_df['Mass_Group'] == group
+        sns.scatterplot(x=y_test_real[mask], y=y_predict_test_real[mask], color=color, label=group.replace('_', ' ').title(), ax=axes[1])
+
+    # best prediction line
+    axes[1].plot([y_test_real.min(), y_test_real.max()], [y_test_real.min(), y_test_real.max()], ls='--', color='red', label='Best Prediction')
+    axes[1].set_title(f"Predicted Vs Actual Mass(Real) Model {train_model}")
+    axes[1].set_xlabel("Actual Mass(Real)")
+    axes[1].set_ylabel("Predicted Mass(Real)")
+    axes[1].legend()
+    axes[1].grid(alpha=0.5, ls='--')
     plt.tight_layout()
     plt.show()
     #==========================================================
 
     # residual plot
-    residual = (y_test - y_predict_test)
+    residual = y_test - y_predict_test
+
+    # colors for mass groups
+    group_colors = {
+        'super_earth': 'blue',
+        'neptune': 'green',
+        'jupiter': 'orange',
+        'massive_planet': 'purple'
+    }
+
     plt.figure(figsize=(12, 8))
-    plt.scatter(y_predict_test,residual,color='blue',label='Residuals of Prediction')
-    plt.axhline(y=0,ls='--')
-    plt.title(f"Residual Plot Model {train_model}")
+    # plot each mass group
+    for group, color in group_colors.items():
+        mask = error_df['Mass_Group'] == group
+        plt.scatter(y_predict_test[mask], residual[mask], color=color, label=group.replace('_', ' ').title())
+
+    # zero residual line
+    plt.axhline(y=0, ls='--', color='red', label='Zero Error')
+    plt.title(f"Residual Plot by Mass Group - Model {train_model}")
     plt.xlabel("Predicted Mass(log)")
     plt.ylabel("Residuals")
     plt.legend()
-    plt.grid(alpha=0.5,ls='--')
+    plt.grid(alpha=0.5, ls='--')
     plt.tight_layout()
     plt.show()
+
+    # residual = (y_test - y_predict_test)
+    # plt.figure(figsize=(12, 8))
+    # plt.scatter(y_predict_test,residual,color='blue',label='Residuals of Prediction')
+    # plt.axhline(y=0,ls='--')
+    # plt.title(f"Residual Plot Model {train_model}")
+    # plt.xlabel("Predicted Mass(log)")
+    # plt.ylabel("Residuals")
+    # plt.legend()
+    # plt.grid(alpha=0.5,ls='--')
+    # plt.tight_layout()
+    # plt.show()
     #==============================================================
     #==============================================================
 
@@ -534,16 +640,22 @@ def random_forest_reg(dff,features=None,train_model='RFR',median=None,knn=None):
     unknown['log_mass_error'] = predict_log_mass_std
     unknown['mass_source'] = 'Predicted'
 
-    known['mass_source'] = ('Observed')
-    known['mass_error_lower'] = np.nan
-    known['mass_error_upper'] = np.nan
+    known['mass_source'] = 'Observed'
+    # known['mass_error_lower'] = np.nan
+    # known['mass_error_upper'] = np.nan
     known['mass_lower_1sigma'] = np.nan
     known['mass_upper_1sigma'] = np.nan
     known['log_mass_error'] = np.nan
     #===============================================
 
+
     # merge datasets
     filled_mass_dataset = pd.concat([known,unknown],ignore_index=True)
+
+    # # round numerical columns to 4 decimal places
+    # float_cols = filled_mass_dataset.select_dtypes(include=['floating']).columns
+    # filled_mass_dataset[float_cols] = (filled_mass_dataset[float_cols].round(4))
+
     print('')
     print(f"Number of NaN Mass Values After using Model: {filled_mass_dataset['mass'].isnull().sum()}")
     print('-'*50)
@@ -556,8 +668,8 @@ def random_forest_reg(dff,features=None,train_model='RFR',median=None,knn=None):
     print('='*50)
     #============================================
 
-    # save changes to new dataset
-    filled_mass_dataset = filled_mass_dataset.to_csv(r'C:\Users\Sisto\Documents\Programming\Python\Projects\Exoplanets\RandomForestRegressor\RFR\random_forest_reg.csv', index=False)
+    # # save changes to new dataset
+    # filled_mass_dataset = filled_mass_dataset.to_csv(r'C:\Users\Sisto\Documents\Programming\Python\Projects\Exoplanets\RandomForestRegressor\RFR\random_forest_reg.csv', index=False)
 
     return filled_mass_dataset
 #=============================================================
@@ -565,6 +677,18 @@ def random_forest_reg(dff,features=None,train_model='RFR',median=None,knn=None):
 #==================================================================
 
 def comp_dataset(df_original, df_model, train_model='RFR'):
+    '''
+    Parameters:
+    --------------------
+    df_original:      Dataframe exoplanet.eu_catalog_03-08-26_16_42_07.csv
+    df_model:         Dataframe random_forest_reg.csv
+    train_model:      string
+
+    Returns:
+    ---------------------
+    Dataframe:        comp_dataset.csv
+    '''
+
     print('')
     print(f'******************** FUNCTION COMPLETE DATASET MODEL {train_model} ********************')
     print('='*50)
@@ -602,24 +726,38 @@ def comp_dataset(df_original, df_model, train_model='RFR'):
     # concat this dataset with the dataset
     # which filled by model A
     df_final = pd.concat([df_model, removed_planets],ignore_index=True)
-    print('Information The Final State of DataSet: ')
-    print(df_final.info())
+    
+    # # round numerical columns to 4 decimal places
+    # float_cols = df_final.select_dtypes(include=['floating']).columns
+    # df_final[float_cols] = df_final[float_cols].round(4)
+
     print('='*50)
     print('='*50)
     print('='*50)
     print('')
-
-    # save changer to a new dataset
-    df_final = df_final.to_csv(r'C:\Users\Sisto\Documents\Programming\Python\Projects\Exoplanets\RandomForestRegressor\RFR\comp_dataset.csv', index=False)
+    df_final['mass_source'] = df_final['mass_source'].fillna('Observed')
+    # # save changer to a new dataset
+    # df_final = df_final.to_csv(r'C:\Users\Sisto\Documents\Programming\Python\Projects\Exoplanets\RandomForestRegressor\RFR\comp_dataset.csv', index=False)
     return df_final
 #=======================================================================
 
-def KNN(df):
+def remain(df):
+    '''
+    Parameters:
+    -----------------------
+    df:         Dataframe comp_dataset.csv
+
+    Returns:
+    -----------------------
+    Dataframe:  RandomForestRegressor_Model.csv
+    '''
+    print('***************** REMAIN FUNCTION **********************')
+    print('='*50)
+    print('')
+
+    # fill with KNN
     num_cols = [
-    'star_mass',
-    'mass',
-    'semi_major_axis',       
-    'orbital_period'
+    'star_mass'
     ]
     standard_scaler = StandardScaler()
     scaled_values = standard_scaler.fit_transform(df[num_cols])
@@ -627,8 +765,36 @@ def KNN(df):
     imputed_scaled = imputer.fit_transform(scaled_values)
     df[num_cols] = standard_scaler.inverse_transform(imputed_scaled)
 
-# save changes to new dataset
-    df = df.to_csv(r'C:\Users\Sisto\Documents\Programming\Python\Projects\Exoplanets\RandomForestRegressor\RFR\RandomForestRegressor_Model.csv', index=False)
+    # fill with Median
+    df['semi_major_axis'] = (df['semi_major_axis'].fillna(df['semi_major_axis'].median())).round(4)
+
+    # print missing values for the last time
+    print('Check Missing Values after Filling Remain Missin Values with KNN(Star Mass) and Median(Semi Major Axis)')
+    missing_values = pd.DataFrame(
+        {
+            'Missing': df.isnull().sum(),
+            'Percent': (df.isnull().mean() * 100).round(2)
+        }
+    )
+    missing_values = missing_values.sort_values('Percent',ascending=True)
+    print(missing_values)
+    print('='*50)
+    print('')
+
+    # print final information of dataset
+    print("The Final Information of Dataset: ")
+    print(df.info())
+    print('='*50)
+    print('='*50)
+    print('='*50)
+    print('')
+
+    # # round numerical columns to 4 decimal places
+    # float_cols = df.select_dtypes(include=['floating']).columns
+    # df[float_cols] = df[float_cols].round(4)
+
+    # # save changes to new dataset
+    # df = df.to_csv(r'C:\Users\Sisto\Documents\Programming\Python\Projects\Exoplanets\RandomForestRegressor\RFR\RandomForestRegressor_Model.csv', index=False)
     return df
 #==================================================================
 #===================================================================
@@ -641,17 +807,36 @@ jupiter_to_sun_mass = 0.000954588
 
 # lagrange equation for L1, L2, L3
 def lagrange_equation(x, b):
+    '''
+    Parameters:
+    ---------------- 
+    x:     float
+    b:     float
+
+    Returns:
+    -------------------
+    lagrange equation:     float
+    '''
     star_x = -b
     planet_x = 1 - b
 
-    term_star = ((1 - b) * (x - star_x) / abs(x - star_x))
-    term_planet = (b * (x - planet_x) / abs(x - planet_x)**3)
+    term_star = (1 - b) * (x - star_x) / abs(x - star_x)**3
+    term_planet = b * (x - planet_x) / abs(x - planet_x)**3
 
     return x - term_star - term_planet
 #=========================================
 
 # calculation of L1, L2, L3
 def calculate_L1_L2_L3(b):
+    '''
+    Parameters:
+    ---------------
+    b:     float
+
+    Returns:
+    -------------
+    x_L1, x_L2, x_L3:     float
+    '''
     star_x = -b
     planet_x = 1 - b
 
@@ -673,6 +858,33 @@ def calculate_L1_L2_L3(b):
 
 # calculate L1 ... L5 for one star_planet
 def calculate_lagrange_points(star_mass, planet_mass, semi_major_axis):
+    '''
+    Parameter:
+    ----------------
+    star_mass:       float
+    planet_mass:     float
+    semi_major_axis: float
+
+    Returns:
+    ----------------
+    'x_L1_AU':             float
+    'distance_star_L1':    float 
+    'distance_planet_L1':  float
+    'x_L2_AU':             float
+    'distance_star_L2':    float 
+    'distance_planet_L2':  float
+    'x_L3_AU':             float
+    'distance_star_L3':    float 
+    'distance_planet_L3':  float
+    'x_L4_AU':             float
+    'y_L4_AU':             float
+    'distance_star_L4':    float 
+    'distance_planet_L4':  float
+    'x_L5_AU':             float
+    'y_L5_AU':             float
+    'distance_star_L5':    float 
+    'distance_planet_L5':  float
+    '''
     # turn mass unit (jupiter -> solar)
     planet_mass_solar = planet_mass * jupiter_to_sun_mass
     total_mass = star_mass + planet_mass_solar
@@ -742,7 +954,22 @@ def calculate_lagrange_points(star_mass, planet_mass, semi_major_axis):
 
 
 def calculate_lagrange_uncertainty(star_mass, planet_mass, mass_error_lower, mass_error_upper, semi_major_axis, n_samples=5000, random_state=45):
+    '''
+    Parameters:
+    -----------------------
+    star_mass:          float
+    planet_mass:        float
+    mass_error_lower:   float
+    mass_error_upper:   float
+    semi_major_axis:    float
+    n_samples:          int
+    random_state:       int
 
+    Returns:
+    -------------------------
+    dict:               Dictionary containing the median values of the Lagrange points and 
+                        their lower and upper uncertainties.
+    '''
     rng = np.random.default_rng(random_state)
 
     # Create asymmetric normal-like mass distribution
